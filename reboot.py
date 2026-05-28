@@ -1,20 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
 import requests
 from bs4 import BeautifulSoup
-
-# ---------------- Config ----------------
-MINER_IP = os.environ.get("MINER_IP", "185.135.229.121")
-MINER_USERNAME = os.environ.get("MINER_USERNAME", "admin")
-MINER_PASSWORD = os.environ.get("MINER_PASSWORD", "alihacker")
-
-# miner -> port map
-port_map = {
-    "131": 201, "132": 202, "133": 203,
-    "65": 301, "66": 302, "70": 303
-}
 
 MINER_GROUPS = {
     "A": ["131", "132", "133"],
@@ -29,40 +17,31 @@ MINER_COLORS = {
 MINER_ICONS = {
     "131": "💎", "132": "💎", "133": "💎",
     "65": "💎", "66": "💎", "70": "💎"
-
 }
 
-# ---------------- Miner control (server-side) ----------------
-def login_to_miner(miner_name, username=MINER_USERNAME, password=MINER_PASSWORD):
-    """
-    Open a session to miner and attempt login. Return requests.Session or None.
-    """
+def login_to_miner(miner_name, miner_ip, miner_password, port_map, username="admin"):
+    """Open a session to miner and attempt login. Return requests.Session or None."""
     miner_port = port_map.get(miner_name)
     if not miner_port:
         return None
-    base_url = f"https://{MINER_IP}:{miner_port}"
+    base_url = f"https://{miner_ip}:{miner_port}"
     login_url = f"{base_url}/cgi-bin/luci"
     session = requests.Session()
     session.verify = False
     requests.packages.urllib3.disable_warnings()
     try:
-        # try initial GET (some firmwares need it)
         session.get(login_url, timeout=6)
-        payload = {"luci_username": username, "luci_password": password}
+        payload = {"luci_username": username, "luci_password": miner_password}
         lr = session.post(login_url, data=payload, timeout=8, allow_redirects=False)
         if lr.status_code in (302, 303):
             return session
-        # Some firmwares might return 200 but still login — but to be conservative return None
         return None
     except Exception:
         return None
 
-def reboot_miner(miner_name, username=MINER_USERNAME, password=MINER_PASSWORD):
-    """
-    Perform reboot on miner using session login -> token extraction -> POST reboot.
-    Returns dict: {"status":"success","message": "..."} or {"status":"error","message":"..."}
-    """
-    session = login_to_miner(miner_name, username, password)
+def reboot_miner(miner_name, miner_ip, miner_password, port_map, username="admin"):
+    """Perform reboot on miner. Returns dict with status and message."""
+    session = login_to_miner(miner_name, miner_ip, miner_password, port_map, username)
     if not session:
         return {"status": "error", "message": "Login failed"}
 
@@ -71,7 +50,7 @@ def reboot_miner(miner_name, username=MINER_USERNAME, password=MINER_PASSWORD):
         return {"status": "error", "message": "Unknown miner port"}
 
     try:
-        reboot_page = f"https://{MINER_IP}:{miner_port}/cgi-bin/luci/admin/system/reboot"
+        reboot_page = f"https://{miner_ip}:{miner_port}/cgi-bin/luci/admin/system/reboot"
         r = session.get(reboot_page, timeout=8)
         if r.status_code != 200:
             return {"status": "error", "message": f"Failed to load reboot page (status {r.status_code})"}
@@ -94,13 +73,11 @@ def reboot_miner(miner_name, username=MINER_USERNAME, password=MINER_PASSWORD):
         if not token:
             return {"status": "error", "message": "Token extraction failed"}
 
-        reboot_api = f"https://{MINER_IP}:{miner_port}/cgi-bin/luci/admin/system/reboot/call"
-        # try form-encoded first (most luci-like endpoints expect form)
+        reboot_api = f"https://{miner_ip}:{miner_port}/cgi-bin/luci/admin/system/reboot/call"
         try:
             resp = session.post(reboot_api, data={"token": token}, timeout=10)
             if resp.status_code == 200:
                 return {"status": "success", "message": f"Miner {miner_name} reboot initiated"}
-            # fallback: try sending JSON body (some devices may accept)
             resp2 = session.post(reboot_api, json={"token": token}, timeout=10)
             if resp2.status_code == 200:
                 return {"status": "success", "message": f"Miner {miner_name} reboot initiated (json)"}
@@ -114,11 +91,9 @@ def reboot_miner(miner_name, username=MINER_USERNAME, password=MINER_PASSWORD):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# ---------------- HTML/JS/CSS generation (safe strings, no f-strings wrapping full block) ----------------
-def generate_miner_groups_html():
+def generate_miner_groups_html(port_map):
     parts = []
     for group_key, miners in MINER_GROUPS.items():
-        # group title A/B mapped to readable name
         title = "Group A (131-133)" if group_key == "A" else "Group B (65-70)"
         parts.append('<div class="miner-group" data-group="{}">'.format(group_key))
         parts.append('  <div class="group-title">{}</div>'.format(title))
@@ -139,11 +114,7 @@ def generate_miner_groups_html():
         parts.append('</div>')
     return "\n".join(parts)
 
-def get_reboot_manager_html():
-    """
-    Returns the full HTML string for inserting into the main site.
-    No f-strings around the whole block so JS/CSS braces are safe.
-    """
+def get_reboot_manager_html(port_map):
     html_top = """
 <div id="poolsRebootContainer">
   <div id="rebootModal" class="modal" aria-hidden="true">
@@ -170,7 +141,7 @@ def get_reboot_manager_html():
 
       <div class="miner-groups-container">
 """
-    html_mid = generate_miner_groups_html()
+    html_mid = generate_miner_groups_html(port_map)
     html_bottom = """
       </div>
     </div>
@@ -202,16 +173,14 @@ def get_reboot_manager_html():
 
 <script>
 (function(){
-  // state
   let selected = [];
-  let results = []; // { miner, ok(bool), msg }
+  let results = [];
 
   function checkboxList() { return Array.from(document.querySelectorAll('#poolsRebootContainer .miner-checkbox')); }
 
   function updateCardVisual(cb) {
     const val = cb.value;
     const card = document.querySelector('#poolsRebootContainer .miner-card[data-miner="' + val + '"]');
-    // fallback to id
     const cardById = document.getElementById('card_' + val);
     const chosen = card || cardById;
     if (chosen) {
@@ -227,7 +196,6 @@ def get_reboot_manager_html():
     updateSelection();
   };
 
-  // label click toggling handled by DOM 'click' listener (see init)
   function updateSelection() {
     selected = checkboxList().filter(c => c.checked).map(c => c.value);
     const cnt = document.getElementById('selectedCount');
@@ -274,7 +242,6 @@ def get_reboot_manager_html():
     if (sumEl) { sumEl.style.display = 'none'; sumEl.innerHTML = ''; }
   };
 
-  // fetch with timeout
   function fetchWithTimeout(url, opts, timeout = 12000) {
     const controller = new AbortController();
     const signal = controller.signal;
@@ -291,7 +258,6 @@ def get_reboot_manager_html():
     document.getElementById('rebootProgressText').textContent = '0%';
     document.getElementById('rebootStatus').textContent = 'Starting reboot sequence...';
 
-    // prepare status rows
     const progressSection = document.getElementById('rebootSummary');
     progressSection.style.display = 'block';
     progressSection.innerHTML = '';
@@ -308,7 +274,6 @@ def get_reboot_manager_html():
         document.getElementById('rebootProgress').style.width = '100%';
         document.getElementById('rebootProgressText').textContent = '100%';
         document.getElementById('rebootStatus').textContent = '✅ Finished. See summary below.';
-        // show condensed summary (succeeded/failed)
         showSummary();
         setTimeout(() => {
           document.getElementById('startRebootBtn').style.display = 'none';
@@ -321,7 +286,7 @@ def get_reboot_manager_html():
       const miner = selected[idx];
       const row = document.getElementById('status_row_' + miner);
       if (row) row.textContent = 'Miner ' + miner + ': Rebooting...';
-      // call server endpoint
+      
       fetchWithTimeout('/reboot_miner', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -347,7 +312,6 @@ def get_reboot_manager_html():
         const pct = Math.round((idx / total) * 100);
         document.getElementById('rebootProgress').style.width = pct + '%';
         document.getElementById('rebootProgressText').textContent = pct + '%';
-        // small safe delay between miners
         setTimeout(next, 1000);
       });
     }
@@ -355,29 +319,9 @@ def get_reboot_manager_html():
     next();
   };
 
-  function transientNotify(type, text) {
-    const box = document.createElement('div');
-    box.className = 'reboot-notify ' + type;
-    box.textContent = text;
-    box.style.position = 'fixed';
-    box.style.right = '18px';
-    box.style.top = (18 + (document.querySelectorAll('.reboot-notify').length * 56)) + 'px';
-    box.style.padding = '10px 14px';
-    box.style.borderRadius = '8px';
-    box.style.zIndex = 12000;
-    box.style.color = '#fff';
-    box.style.opacity = '1';
-    box.style.transition = 'opacity 0.3s';
-    box.style.maxWidth = '320px';
-    box.style.background = (type === 'success') ? '#10b981' : '#ef4444';
-    document.body.appendChild(box);
-    setTimeout(() => { box.style.opacity = '0'; setTimeout(() => box.remove(), 300); }, 3500);
-  }
-
   function showSummary() {
     const el = document.getElementById('rebootSummary');
     if (!el) return;
-    // build summary
     const ok = results.filter(r => r.ok).map(r => r.miner);
     const bad = results.filter(r => !r.ok);
     let html = '<div style="padding:10px;background:rgba(255,255,255,0.02);border-radius:8px;">';
@@ -392,7 +336,6 @@ def get_reboot_manager_html():
     el.innerHTML = html;
   }
 
-  // overlay click close
   window.onOverlayClick = function(e) {
     if (e.target && e.target.id === 'rebootModalOverlay') closeRebootModal();
   };
@@ -400,10 +343,8 @@ def get_reboot_manager_html():
   window.showRebootModal = function() {
     document.getElementById('rebootModalOverlay').style.display = 'block';
     document.getElementById('rebootModal').style.display = 'block';
-    // attach click handlers for cards (label elements)
     document.querySelectorAll('#poolsRebootContainer .miner-card').forEach(card => {
       card.addEventListener('click', function(e) {
-        // toggling handled by the input; wait a tick then update UI
         setTimeout(() => {
           const cb = this.querySelector('input[type="checkbox"]');
           if (cb) { updateCardVisual(cb); updateSelection(); }
@@ -418,9 +359,7 @@ def get_reboot_manager_html():
     document.getElementById('rebootModal').style.display = 'none';
   };
 
-  // init on DOM ready (in case HTML inserted before)
   document.addEventListener('DOMContentLoaded', function() {
-    // ensure checkboxes reflect selection visuals
     document.querySelectorAll('#poolsRebootContainer .miner-checkbox').forEach(cb => {
       updateCardVisual(cb);
     });
@@ -431,7 +370,6 @@ def get_reboot_manager_html():
 </script>
 
 <style>
-/* scoped styles to avoid touching main site */
 #poolsRebootContainer { font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Arial; }
 #poolsRebootContainer .modal { position: fixed; top:50%; left:50%; transform: translate(-50%,-50%); width:92%; max-width:760px; max-height:88vh; overflow:auto;
   background: linear-gradient(180deg,#071025,#0f1724); color:#e6eef8; border-radius:12px; padding:16px; z-index:11000; box-shadow:0 12px 40px rgba(2,6,23,0.7); }
@@ -474,5 +412,4 @@ def get_reboot_manager_html():
 """
     return html_top + html_mid + html_bottom
 
-# exported symbols for main.py to import
 __all__ = ["reboot_miner", "get_reboot_manager_html"]

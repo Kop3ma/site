@@ -1,6 +1,8 @@
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+#port_map=>>>web login
+# miner_port=>>api
 import os
 import socket
 import json
@@ -30,8 +32,12 @@ MINER_PORTS = [1312, 1323, 1356, 1364, 1369, 1371]
 
 # Map name -> port (سراسری، روابط لینک‌ها به این پورت‌ها خواهد بود)
 port_map = {
-    "131": 1311, "132": 1322, "133": 1355,
-    "65":  1367, "66":  1368, "70":  1370,
+    "131": 1311,
+    "132": 1322,
+    "133": 1355,
+    "65": 1367,
+    "66": 1368,
+    "70": 1370
 }
 
 SOCKET_TIMEOUT = 3.0
@@ -382,10 +388,9 @@ tr:nth-child(even){background:#f8fafc;}
 </div>
 
 <!-- اضافه شدن پولز مودال -->
-""" + get_pools_manager_html() + """
-
+""" + get_pools_manager_html(port_map) + """
 <!-- اضافه شدن ریبوت مودال -->
-""" + get_reboot_manager_html() + """
+""" + get_reboot_manager_html(port_map) + """
 
 <!-- اضافه شدن ترمینال مودال -->
 """ + get_terminal_html() + """
@@ -894,7 +899,14 @@ def update_pools():
         if not miner_name or not pools_data:
             return jsonify({"error": "Missing miner or pools data"})
 
-        result = update_miner_pools(miner_name, pools_data, MINER_USERNAME, MINER_PASSWORD)
+        result = update_miner_pools(
+    miner_name=miner_name,
+    pools_data=pools_data,
+    miner_ip=MINER_IP,
+    miner_password=MINER_PASSWORD,
+    port_map=port_map,
+    username=MINER_USERNAME
+)
         return jsonify(result)
 
     except Exception as e:
@@ -910,7 +922,13 @@ def reboot_miner_route():
         if not miner_name:
             return jsonify({"error": "Missing miner name"})
 
-        result = reboot_miner(miner_name, MINER_USERNAME, MINER_PASSWORD)
+        result = reboot_miner(
+    miner_name=miner_name,
+    miner_ip=MINER_IP,
+    miner_password=MINER_PASSWORD,
+    port_map=port_map,
+    username=MINER_USERNAME
+)
         return jsonify(result)
 
     except Exception as e:
@@ -963,5 +981,5 @@ def get_miner_logs_route():
         return jsonify({"status": "error", "message": f"Server error: {str(e)}", "logs": ""})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8001))
     app.run(host="0.0.0.0", port=port, debug=False)

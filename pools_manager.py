@@ -1,26 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os
 import requests
 from bs4 import BeautifulSoup
 
-# Pool Configuration - Easy to change
+# Pool Configuration
 POOL1_URL = "stratum+tcp://sha256.poolbinance.com:443"
 POOL2_URL = "stratum+tcp://bs.poolbinance.com:3333" 
 POOL3_URL = "stratum+tcp://btc.poolbinance.com:1800"
 POOL_PASSWORD = "123"
-
-# خواندن تنظیمات از environment
-MINER_IP = os.environ.get("MINER_IP")
-MINER_USERNAME = "admin"
-MINER_PASSWORD = os.environ.get("MINER_PASSWORD")
-
-# Map name -> port
-port_map = {
-    "131": 201, "132": 202, "133": 203,
-    "65": 301, "66": 302, "70": 303
-}
 
 # گروه‌بندی ماینرها
 MINER_GROUPS = {
@@ -34,7 +22,7 @@ MINER_COLORS = {
     "65": "#F59E0B", "66": "#EF4444", "70": "#EC4899"
 }
 
-# آیکون‌های مخصوص هر ماینر - جدید و خفن‌تر!
+# آیکون‌های مخصوص هر ماینر
 MINER_ICONS = {
     "131": "🛠️", "132": "🛠️", "133": "🛠️",
     "65": "🛠️", "66": "🛠️", "70": "🛠️"
@@ -46,14 +34,14 @@ MINER_NAMES = {
     "65": "65TH", "66": "66TH", "70": "70TH"
 }
 
-def login_to_miner(miner_name, username, password):
+def login_to_miner(miner_name, miner_ip, miner_password, port_map, username="admin"):
     """Login to miner and return session"""
     miner_port = port_map.get(miner_name)
     if not miner_port:
         print(f"❌ Port not found for miner {miner_name}")
         return None
     
-    base_url = f"https://{MINER_IP}:{miner_port}"
+    base_url = f"https://{miner_ip}:{miner_port}"
     login_url = f"{base_url}/cgi-bin/luci"
     
     session = requests.Session()
@@ -67,7 +55,7 @@ def login_to_miner(miner_name, username, password):
         
         login_data = {
             'luci_username': username,
-            'luci_password': password
+            'luci_password': miner_password
         }
         
         login_response = session.post(login_url, data=login_data, timeout=10, allow_redirects=False)
@@ -82,17 +70,17 @@ def login_to_miner(miner_name, username, password):
         print(f"❌ Login error for miner {miner_name}: {str(e)}")
         return None
 
-def update_miner_pools(miner_name, pools_data, username, password):
+def update_miner_pools(miner_name, pools_data, miner_ip, miner_password, port_map, username="admin"):
     """Update pool settings for a miner"""
     print(f"🔄 Starting pool update for miner {miner_name}...")
     
-    session = login_to_miner(miner_name, username, password)
+    session = login_to_miner(miner_name, miner_ip, miner_password, port_map, username)
     if not session:
         return {"error": "Login failed"}
     
     try:
         miner_port = port_map.get(miner_name)
-        pool_url_page = f"https://{MINER_IP}:{miner_port}/cgi-bin/luci/admin/network/btminer"
+        pool_url_page = f"https://{miner_ip}:{miner_port}/cgi-bin/luci/admin/network/btminer"
         
         print(f"📄 Loading pool configuration page for {miner_name}...")
         response = session.get(pool_url_page, timeout=10)
@@ -130,7 +118,7 @@ def update_miner_pools(miner_name, pools_data, username, password):
         print(f"❌ Connection error for {miner_name}: {str(e)}")
         return {"error": f"Connection error: {str(e)}"}
 
-def get_pools_manager_html():
+def get_pools_manager_html(port_map):
     """Return HTML for pools management interface"""
     return f'''
     <!-- Pools Configuration Modal -->
@@ -153,7 +141,7 @@ def get_pools_manager_html():
             </div>
             
             <div class="miner-groups-container">
-    {generate_miner_groups_html()}
+    {generate_miner_groups_html(port_map)}
             </div>
         </div>
 
@@ -685,7 +673,6 @@ def get_pools_manager_html():
             return;
         }}
         
-        // Get main worker from user
         const mainWorker = prompt('👤 Enter main worker name:\\n(Example: Ali or Charli)', 'Ali');
         
         if (!mainWorker) {{
@@ -693,13 +680,11 @@ def get_pools_manager_html():
             return;
         }}
         
-        // Only show for first miner (preview)
         const firstMiner = selectedMiners[0];
         document.getElementById('pool1_worker').value = mainWorker + '.' + firstMiner;
         document.getElementById('pool2_worker').value = mainWorker + '.' + firstMiner;
         document.getElementById('pool3_worker').value = mainWorker + '.' + firstMiner;
         
-        // Notify user
         if (selectedMiners.length > 1) {{
             showNotification(`✅ Workers will be set for ${{selectedMiners.length}} miners`, 'info');
         }} else {{
@@ -751,7 +736,6 @@ def get_pools_manager_html():
             }}
         }};
 
-        // Validate pool data
         for (let poolNum in poolsData) {{
             const pool = poolsData[poolNum];
             if (!pool.url || !pool.worker) {{
@@ -772,7 +756,6 @@ def get_pools_manager_html():
 
         showNotification('🚀 Starting pool configuration update...', 'info');
         
-        // Update miners sequentially
         updateMinersSequentially(selectedMiners, poolsData, 0, progressBar, progressText);
     }}
 
@@ -783,7 +766,6 @@ def get_pools_manager_html():
             setTimeout(() => {{
                 showNotification('✅ All pool settings updated successfully!', 'success');
                 closePoolsModal();
-                // Reset form
                 document.querySelectorAll('input[type="text"]').forEach(input => input.value = '');
                 deselectAll();
             }}, 1000);
@@ -797,12 +779,11 @@ def get_pools_manager_html():
 
         showNotification(`🔄 Configuring Miner ${{miner}} (${{currentIndex + 1}}/${{miners.length}})`, 'info');
 
-        // برای هر ماینر worker مخصوص خودش رو تنظیم کن
         const minerPoolsData = JSON.parse(JSON.stringify(poolsData));
-        const mainWorker = minerPoolsData[1].worker.split('.')[0]; // گرفتن بخش اول (مثلاً Ali)
+        const mainWorker = minerPoolsData[1].worker.split('.')[0];
         
         for (let poolNum in minerPoolsData) {{
-            minerPoolsData[poolNum].worker = mainWorker + '.' + miner; // مثلاً Ali.131
+            minerPoolsData[poolNum].worker = mainWorker + '.' + miner;
         }}
 
         fetch('/update_pools', {{
@@ -820,12 +801,10 @@ def get_pools_manager_html():
             }} else {{
                 showNotification(`❌ Miner ${{miner}}: ${{data.error}}`, 'error');
             }}
-            // Move to next miner
             updateMinersSequentially(miners, poolsData, currentIndex + 1, progressBar, progressText);
         }})
         .catch(error => {{
             showNotification(`❌ Error updating miner ${{miner}}: ${{error}}`, 'error');
-            // Continue with next miner even if this one fails
             updateMinersSequentially(miners, poolsData, currentIndex + 1, progressBar, progressText);
         }});
     }}
@@ -840,7 +819,6 @@ def get_pools_manager_html():
             modal.style.display = 'block';
             console.log('✅ Pools Modal opened successfully');
             
-            // Reset selection
             setTimeout(() => {{
                 updateSelection();
             }}, 100);
@@ -861,7 +839,6 @@ def get_pools_manager_html():
     }}
 
     function showNotification(message, type) {{
-        // Create notification element
         const notification = document.createElement('div');
         notification.style.cssText = `
             position: fixed;
@@ -881,7 +858,6 @@ def get_pools_manager_html():
         
         document.body.appendChild(notification);
         
-        // Remove after 3 seconds
         setTimeout(() => {{
             notification.style.animation = 'slideOut 0.3s ease';
             setTimeout(() => {{
@@ -890,7 +866,6 @@ def get_pools_manager_html():
         }}, 3000);
     }}
 
-    // Add CSS for animations
     const style = document.createElement('style');
     style.textContent = `
         @keyframes slideIn {{
@@ -904,14 +879,12 @@ def get_pools_manager_html():
     `;
     document.head.appendChild(style);
 
-    // Close modal when clicking outside
     document.addEventListener('click', function(event) {{
         if (event.target === document.getElementById('poolsModalOverlay')) {{
             closePoolsModal();
         }}
     }});
 
-    // Initialize miner cards
     setTimeout(() => {{
         ['131', '132', '133', '65', '66', '70'].forEach(miner => {{
             updateCardState(miner);
@@ -921,7 +894,8 @@ def get_pools_manager_html():
     </script>
     '''
 
-def generate_miner_groups_html():
+
+def generate_miner_groups_html(port_map):
     """Generate HTML for miner groups selection"""
     html = ''
     for group_name, miners in MINER_GROUPS.items():
@@ -955,6 +929,7 @@ def generate_miner_groups_html():
         '''
     
     return html
+
 
 def generate_pools_html():
     """Generate HTML for pools configuration"""
