@@ -26,16 +26,12 @@ MINER_IP = os.environ.get("MINER_IP")
 MINER_USERNAME = "admin"
 MINER_PASSWORD = os.environ.get("MINER_PASSWORD")
 MINER_NAMES = ["131", "132", "133", "65", "66", "70"]
-MINER_PORTS = [204, 205, 206, 304, 305, 306]
+MINER_PORTS = [1312, 1323, 1356, 1364, 1369, 1371]
 
 # Map name -> port (سراسری، روابط لینک‌ها به این پورت‌ها خواهد بود)
 port_map = {
-    "131": 201,
-    "132": 202,
-    "133": 203,
-    "65": 301,
-    "66": 302,
-    "70": 303
+    "131": 1311, "132": 1322, "133": 1355,
+    "65":  1367, "66":  1368, "70":  1370,
 }
 
 SOCKET_TIMEOUT = 3.0
